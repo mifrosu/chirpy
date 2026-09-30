@@ -24,12 +24,13 @@ func main() {
 	slog.SetDefault(logger)
 
 	const port = "8080"
+	const staticPath = "./static"
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler{})
 	// Serve only ./static; FileServer serves index.html for "/" and 404s
 	// anything that doesn't exist.
-	mux.Handle("/", http.FileServer(http.Dir("./static")))
+	mux.Handle("/", http.FileServer(http.Dir(staticPath)))
 
 	server := &http.Server{
 		Addr:           ":" + port,
@@ -39,7 +40,7 @@ func main() {
 		MaxHeaderBytes: 1 << 20, // bitwise left shift, 2 power 20 (1 MB)
 	}
 
-	slog.Info("Serving", "port", port)
+	slog.Info("Serving", "port", port, "path", staticPath)
 	if err := server.ListenAndServe(); err != nil {
 		slog.Error("server failed", "err", err)
 		os.Exit(1)
