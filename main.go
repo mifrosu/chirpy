@@ -11,6 +11,13 @@ type apiHandler struct{}
 
 func (apiHandler) ServeHTTP(http.ResponseWriter, *http.Request) {}
 
+// handlerReadiness reports that the server is ready to accept requests.
+func handlerReadiness(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
 func main() {
 	// TextHandler emits RFC 3339 (ISO 8601) timestamps; convert them to UTC.
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -28,6 +35,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler{})
+	mux.HandleFunc("/healthz", handlerReadiness)
 	// Serve only ./static; FileServer serves index.html for "/" and 404s
 	// anything that doesn't exist.
 	mux.Handle("/", http.FileServer(http.Dir(staticPath)))
