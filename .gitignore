@@ -1,0 +1,50 @@
+.DS_Store
+.idea
+*.log
+tmp/
+
+# Binaries
+/chirpy
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+coverage.html
+
+# Dependency directories (if using go mod vendoring)
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build output (common conventions)
+/bin/
+/build/
+/dist/
+
+# Environment / secrets
+.env
+.env.local
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Air (live reload tool) tmp dir
+tmp/
