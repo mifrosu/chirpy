@@ -1,17 +1,44 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"time"
 )
 
 type apiHandler struct{}
 
+type apiConfig struct {
+	// safely write and read an int across go routines
+	fileserverHits atomic.Int32
+}
+
+func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfg.fileserverHits.Add(1)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// handlerMetrics reports the number of file server requests counted so far.
+func (cfg *apiConfig) handlerMetrics(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Hits: %d", cfg.fileserverHits.Load())
+}
+
+func (cfg *apiConfig) handlerReset(w http.ResponseWriter, req *http.Request) {
+	cfg.fileserverHits.Store(0)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Hits reset to 0"))
+}
+
 func (apiHandler) ServeHTTP(http.ResponseWriter, *http.Request) {}
 
-// handlerReadiness reports that the server is ready to accept requests.
 func handlerReadiness(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -33,12 +60,18 @@ func main() {
 	const port = "8080"
 	const staticPath = "./static"
 
+	cfg := &apiConfig{}
+
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler{})
 	mux.HandleFunc("/healthz", handlerReadiness)
-	// Serve only ./static; FileServer serves index.html for "/" and 404s
-	// anything that doesn't exist.
-	mux.Handle("/", http.FileServer(http.Dir(staticPath)))
+	mux.HandleFunc("/metrics", cfg.handlerMetrics)
+	mux.HandleFunc("/reset", cfg.handlerReset)
+	// Serve only ./static under /app/; FileServer serves static/app/index.html
+	// for "/app/" and 404s anything that doesn't exist. Mounting at "/app/"
+	// lets the mux redirect "/app" itself, so the redirect isn't counted by
+	// the metrics middleware (which counts each request to this handler).
+	mux.Handle("/app/", cfg.middlewareMetricsInc(http.FileServer(http.Dir(staticPath))))
 
 	server := &http.Server{
 		Addr:           ":" + port,
