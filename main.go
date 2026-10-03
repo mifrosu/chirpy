@@ -73,7 +73,7 @@ func main() {
 	mux.Handle("/api/", apiHandler{})
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
 	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetrics)
-	mux.HandleFunc("POST /api/reset", cfg.handlerReset)
+	mux.HandleFunc("POST /admin/reset", cfg.handlerReset)
 	// Serve only ./static under /app/; FileServer serves static/app/index.html
 	// for "/app/" and 404s anything that doesn't exist. Mounting at "/app/"
 	// lets the mux redirect "/app" itself, so the redirect isn't counted by
