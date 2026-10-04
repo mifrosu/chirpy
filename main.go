@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 type apiHandler struct{}
@@ -52,6 +54,43 @@ func handlerReadiness(w http.ResponseWriter, req *http.Request) {
 	w.Write([]byte("OK\n"))
 }
 
+const maxChirpLength = 140
+
+func respondWithJSON(w http.ResponseWriter, code int, payload any) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		slog.Error("marshal response", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	w.Write(data)
+}
+
+func respondWithError(w http.ResponseWriter, code int, msg string) {
+	respondWithJSON(w, code, map[string]string{"error": msg})
+}
+
+// handlerValidateChirp checks that a chirp body is at most 140 characters.
+func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
+	var params struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
+		slog.Error("decode chirp", "err", err)
+		respondWithError(w, http.StatusBadRequest, "Something went wrong")
+		return
+	}
+
+	if utf8.RuneCountInString(params.Body) > maxChirpLength {
+		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]bool{"valid": true})
+}
+
 func main() {
 	// TextHandler emits RFC 3339 (ISO 8601) timestamps; convert them to UTC.
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -72,6 +111,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler{})
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
+	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
 	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", cfg.handlerReset)
 	// Serve only ./static under /app/; FileServer serves static/app/index.html
