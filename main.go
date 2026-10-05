@@ -93,11 +93,32 @@ func respondWithError(w http.ResponseWriter, code int, msg string) {
 	respondWithJSON(w, code, map[string]string{"error": msg})
 }
 
-// handlerValidateChirp checks that a chirp body is at most 140 characters and
-// responds with the body cleaned of profane words.
-func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
+// Chirp is the JSON representation of a chirp returned by the API.
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
+}
+
+var errChirpTooLong = errors.New("Chirp is too long")
+
+// validateChirp checks that a chirp body is at most 140 characters and
+// returns it cleaned of profane words.
+func validateChirp(body string) (string, error) {
+	if utf8.RuneCountInString(body) > maxChirpLength {
+		return "", errChirpTooLong
+	}
+	return cleanProfanity(body), nil
+}
+
+// handlerCreateChirp validates a chirp, saves it for the given user and
+// responds with 201 and the new chirp.
+func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, req *http.Request) {
 	var params struct {
-		Body string `json:"body"`
+		Body   string `json:"body"`
+		UserID string `json:"user_id"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
 		slog.Error("decode chirp", "err", err)
@@ -105,12 +126,40 @@ func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if utf8.RuneCountInString(params.Body) > maxChirpLength {
-		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
+	userID, err := uuid.Parse(params.UserID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user_id")
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, map[string]string{"cleaned_body": cleanProfanity(params.Body)})
+	cleaned, err := validateChirp(params.Body)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	chirp, err := cfg.db.CreateChirp(req.Context(), database.CreateChirpParams{
+		Body:   cleaned,
+		UserID: userID,
+	})
+	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23503" { // foreign_key_violation
+			respondWithError(w, http.StatusBadRequest, "User does not exist")
+			return
+		}
+		slog.Error("create chirp", "err", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create chirp")
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, Chirp{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserID:    chirp.UserID,
+	})
 }
 
 // User is the JSON representation of a user returned by the API.
@@ -211,7 +260,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler{})
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
-	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
+	mux.HandleFunc("POST /api/chirps", cfg.handlerCreateChirp)
 	mux.HandleFunc("POST /api/users", cfg.handlerCreateUser)
 	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", cfg.handlerReset)

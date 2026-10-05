@@ -90,36 +90,59 @@ func TestHandlerResetForbiddenOutsideDev(t *testing.T) {
 	}
 }
 
-func TestHandlerValidateChirp(t *testing.T) {
+func TestValidateChirp(t *testing.T) {
 	tests := []struct {
-		name       string
-		body       string
-		wantStatus int
-		wantJSON   string
+		name    string
+		body    string
+		want    string
+		wantErr error
 	}{
-		{"short chirp", `{"body":"This is an opinion I need to share with the world"}`, http.StatusOK, `{"cleaned_body":"This is an opinion I need to share with the world"}`},
-		{"exactly 140 chars", `{"body":"` + strings.Repeat("a", 140) + `"}`, http.StatusOK, `{"cleaned_body":"` + strings.Repeat("a", 140) + `"}`},
-		{"141 chars", `{"body":"` + strings.Repeat("a", 141) + `"}`, http.StatusBadRequest, `{"error":"Chirp is too long"}`},
-		{"140 multibyte chars", `{"body":"` + strings.Repeat("é", 140) + `"}`, http.StatusOK, `{"cleaned_body":"` + strings.Repeat("é", 140) + `"}`},
-		{"empty body field", `{"body":""}`, http.StatusOK, `{"cleaned_body":""}`},
-		{"profane word", `{"body":"This is a kerfuffle opinion I need to share with the world"}`, http.StatusOK, `{"cleaned_body":"This is a **** opinion I need to share with the world"}`},
-		{"mixed case and multiple", `{"body":"I hear Mastodon is better than Chirpy. SHARBERT Fornax kerfuffle"}`, http.StatusOK, `{"cleaned_body":"I hear Mastodon is better than Chirpy. **** **** ****"}`},
-		{"punctuation not replaced", `{"body":"Sharbert! is not kerfuffle."}`, http.StatusOK, `{"cleaned_body":"Sharbert! is not kerfuffle."}`},
-		{"profane word in long chirp still rejected", `{"body":"kerfuffle ` + strings.Repeat("a", 140) + `"}`, http.StatusBadRequest, `{"error":"Chirp is too long"}`},
-		{"invalid JSON", `not json`, http.StatusBadRequest, `{"error":"Something went wrong"}`},
-		{"empty request body", ``, http.StatusBadRequest, `{"error":"Something went wrong"}`},
+		{"short chirp", "This is an opinion I need to share with the world", "This is an opinion I need to share with the world", nil},
+		{"exactly 140 chars", strings.Repeat("a", 140), strings.Repeat("a", 140), nil},
+		{"141 chars", strings.Repeat("a", 141), "", errChirpTooLong},
+		{"140 multibyte chars", strings.Repeat("é", 140), strings.Repeat("é", 140), nil},
+		{"empty body", "", "", nil},
+		{"profane word", "This is a kerfuffle opinion I need to share with the world", "This is a **** opinion I need to share with the world", nil},
+		{"mixed case and multiple", "I hear Mastodon is better than Chirpy. SHARBERT Fornax kerfuffle", "I hear Mastodon is better than Chirpy. **** **** ****", nil},
+		{"punctuation not replaced", "Sharbert! is not kerfuffle.", "Sharbert! is not kerfuffle.", nil},
+		{"profane word in long chirp still rejected", "kerfuffle " + strings.Repeat("a", 140), "", errChirpTooLong},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/api/validate_chirp", strings.NewReader(tt.body))
-			handlerValidateChirp(rec, req)
-
-			if rec.Code != tt.wantStatus {
-				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
+			got, err := validateChirp(tt.body)
+			if err != tt.wantErr {
+				t.Errorf("err = %v, want %v", err, tt.wantErr)
 			}
-			if got, want := rec.Header().Get("Content-Type"), "application/json"; got != want {
-				t.Errorf("Content-Type = %q, want %q", got, want)
+			if got != tt.want {
+				t.Errorf("cleaned = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestHandlerCreateChirpRejectsInvalid covers requests rejected before any
+// database access, so the config has no db.
+func TestHandlerCreateChirpRejectsInvalid(t *testing.T) {
+	const userID = "123e4567-e89b-12d3-a456-426614174000"
+	tests := []struct {
+		name     string
+		body     string
+		wantJSON string
+	}{
+		{"invalid JSON", `not json`, `{"error":"Something went wrong"}`},
+		{"empty request body", ``, `{"error":"Something went wrong"}`},
+		{"missing user_id", `{"body":"hi"}`, `{"error":"Invalid user_id"}`},
+		{"malformed user_id", `{"body":"hi","user_id":"nope"}`, `{"error":"Invalid user_id"}`},
+		{"too long", `{"body":"` + strings.Repeat("a", 141) + `","user_id":"` + userID + `"}`, `{"error":"Chirp is too long"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &apiConfig{}
+			rec := httptest.NewRecorder()
+			cfg.handlerCreateChirp(rec, httptest.NewRequest(http.MethodPost, "/api/chirps", strings.NewReader(tt.body)))
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 			}
 			if got := rec.Body.String(); got != tt.wantJSON {
 				t.Errorf("body = %q, want %q", got, tt.wantJSON)
