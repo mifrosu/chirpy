@@ -4,7 +4,8 @@ url: http://localhost:8080/api/users
 body:
   content: |-
     {
-      "email": "gopher@example.com"
+      "email": "gopher@example.com",
+      "password": "WhenceThouGophletPruneISayThee"
     }
   content_type: application/json
 headers:

@@ -31,8 +31,8 @@ Logging uses `log/slog` with a TextHandler whose `ReplaceAttr` forces timestamps
 
 ## Database
 
-Schema lives in `sql/schema/` as goose migrations (timestamp-prefixed; new ones must sort after existing ones), queries in `sql/queries/`, and `sqlc.yaml` generates `internal/database/` (do not edit by hand). `users.hashed_password` is `NOT NULL DEFAULT 'unset'`; `POST /api/users` does not set it yet. `chirps.user_id` cascades on user delete.
+Schema lives in `sql/schema/` as goose migrations (timestamp-prefixed; new ones must sort after existing ones), queries in `sql/queries/`, and `sqlc.yaml` generates `internal/database/` (do not edit by hand). `users.hashed_password` is `NOT NULL DEFAULT 'unset'`; `POST /api/users` stores an argon2id hash there (the password is never returned). `chirps.user_id` cascades on user delete.
 
 ## Auth
 
-`internal/auth` exposes `HashPassword` and `CheckPasswordHash` (argon2id via `github.com/alexedwards/argon2id`). Not yet wired into any handler.
+`internal/auth` exposes `HashPassword` and `CheckPasswordHash` (argon2id via `github.com/alexedwards/argon2id`). `POST /api/users` uses `HashPassword`; `CheckPasswordHash` is not yet used by any handler.

@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/lib/pq"
+	"github.com/scruffling/chirpy/internal/auth"
 	"github.com/scruffling/chirpy/internal/database"
 )
 
@@ -212,11 +213,13 @@ type User struct {
 	Email     string    `json:"email"`
 }
 
-// handlerCreateUser creates a user from the email in the request body and
-// responds with 201 and the new user.
+// handlerCreateUser creates a user from the email and password in the request
+// body, storing only an argon2id hash of the password, and responds with 201
+// and the new user.
 func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, req *http.Request) {
 	var params struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
 		slog.Error("decode user", "err", err)
@@ -227,10 +230,24 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, req *http.Request
 		respondWithError(w, http.StatusBadRequest, "Email is required")
 		return
 	}
+	if params.Password == "" {
+		respondWithError(w, http.StatusBadRequest, "Password is required")
+		return
+	}
+
+	hashed, err := auth.HashPassword(params.Password)
+	if err != nil {
+		slog.Error("hash password", "err", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create user")
+		return
+	}
 
 	// We pass request context to the db so that the operation may cancel
 	// if the query is interupted
-	user, err := cfg.db.CreateUser(req.Context(), params.Email)
+	user, err := cfg.db.CreateUser(req.Context(), database.CreateUserParams{
+		Email:          params.Email,
+		HashedPassword: hashed,
+	})
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" { // unique_violation
