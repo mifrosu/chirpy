@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,7 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/scruffling/chirpy/internal/database"
 )
 
@@ -140,6 +141,11 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, req *http.Request
 	// if the query is interupted
 	user, err := cfg.db.CreateUser(req.Context(), params.Email)
 	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" { // unique_violation
+			respondWithError(w, http.StatusConflict, "A user with that email already exists")
+			return
+		}
 		slog.Error("create user", "err", err)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create user")
 		return

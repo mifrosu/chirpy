@@ -1,0 +1,12 @@
+name: chirpy-post-users
+method: POST
+url: http://localhost:8080/api/users
+body:
+  content: |-
+    {
+      "email": "gopher@example.com"
+    }
+  content_type: application/json
+headers:
+- name: content-type
+  value: application/json
