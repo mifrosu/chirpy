@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/scruffling/chirpy/internal/database"
@@ -99,6 +100,47 @@ func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 	respondWithJSON(w, http.StatusOK, map[string]string{"cleaned_body": cleanProfanity(params.Body)})
 }
 
+// User is the JSON representation of a user returned by the API.
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
+}
+
+// handlerCreateUser creates a user from the email in the request body and
+// responds with 201 and the new user.
+func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, req *http.Request) {
+	var params struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
+		slog.Error("decode user", "err", err)
+		respondWithError(w, http.StatusBadRequest, "Something went wrong")
+		return
+	}
+	if params.Email == "" {
+		respondWithError(w, http.StatusBadRequest, "Email is required")
+		return
+	}
+
+	// We pass request context to the db so that the operation may cancel
+	// if the query is interupted
+	user, err := cfg.db.CreateUser(req.Context(), params.Email)
+	if err != nil {
+		slog.Error("create user", "err", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create user")
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	})
+}
+
 var profaneWords = map[string]bool{
 	"kerfuffle": true,
 	"sharbert":  true,
@@ -152,6 +194,7 @@ func main() {
 	mux.Handle("/api/", apiHandler{})
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
 	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
+	mux.HandleFunc("POST /api/users", cfg.handlerCreateUser)
 	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", cfg.handlerReset)
 	// Serve only ./static under /app/; FileServer serves static/app/index.html
