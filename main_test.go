@@ -90,6 +90,44 @@ func TestHandlerReset(t *testing.T) {
 	}
 }
 
+func TestHandlerValidateChirp(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantJSON   string
+	}{
+		{"short chirp", `{"body":"This is an opinion I need to share with the world"}`, http.StatusOK, `{"cleaned_body":"This is an opinion I need to share with the world"}`},
+		{"exactly 140 chars", `{"body":"` + strings.Repeat("a", 140) + `"}`, http.StatusOK, `{"cleaned_body":"` + strings.Repeat("a", 140) + `"}`},
+		{"141 chars", `{"body":"` + strings.Repeat("a", 141) + `"}`, http.StatusBadRequest, `{"error":"Chirp is too long"}`},
+		{"140 multibyte chars", `{"body":"` + strings.Repeat("é", 140) + `"}`, http.StatusOK, `{"cleaned_body":"` + strings.Repeat("é", 140) + `"}`},
+		{"empty body field", `{"body":""}`, http.StatusOK, `{"cleaned_body":""}`},
+		{"profane word", `{"body":"This is a kerfuffle opinion I need to share with the world"}`, http.StatusOK, `{"cleaned_body":"This is a **** opinion I need to share with the world"}`},
+		{"mixed case and multiple", `{"body":"I hear Mastodon is better than Chirpy. SHARBERT Fornax kerfuffle"}`, http.StatusOK, `{"cleaned_body":"I hear Mastodon is better than Chirpy. **** **** ****"}`},
+		{"punctuation not replaced", `{"body":"Sharbert! is not kerfuffle."}`, http.StatusOK, `{"cleaned_body":"Sharbert! is not kerfuffle."}`},
+		{"profane word in long chirp still rejected", `{"body":"kerfuffle ` + strings.Repeat("a", 140) + `"}`, http.StatusBadRequest, `{"error":"Chirp is too long"}`},
+		{"invalid JSON", `not json`, http.StatusBadRequest, `{"error":"Something went wrong"}`},
+		{"empty request body", ``, http.StatusBadRequest, `{"error":"Something went wrong"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/validate_chirp", strings.NewReader(tt.body))
+			handlerValidateChirp(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if got, want := rec.Header().Get("Content-Type"), "application/json"; got != want {
+				t.Errorf("Content-Type = %q, want %q", got, want)
+			}
+			if got := rec.Body.String(); got != tt.wantJSON {
+				t.Errorf("body = %q, want %q", got, tt.wantJSON)
+			}
+		})
+	}
+}
+
 func TestHandlerReadiness(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handlerReadiness(rec, httptest.NewRequest(http.MethodGet, "/api/healthz", nil))

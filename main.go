@@ -1,14 +1,20 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
+	"github.com/scruffling/chirpy/internal/database"
 )
 
 type apiHandler struct{}
@@ -16,6 +22,7 @@ type apiHandler struct{}
 type apiConfig struct {
 	// safely write and read an int across go routines
 	fileserverHits atomic.Int32
+	db             *database.Queries
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -72,7 +79,8 @@ func respondWithError(w http.ResponseWriter, code int, msg string) {
 	respondWithJSON(w, code, map[string]string{"error": msg})
 }
 
-// handlerValidateChirp checks that a chirp body is at most 140 characters.
+// handlerValidateChirp checks that a chirp body is at most 140 characters and
+// responds with the body cleaned of profane words.
 func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 	var params struct {
 		Body string `json:"body"`
@@ -88,10 +96,30 @@ func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, map[string]bool{"valid": true})
+	respondWithJSON(w, http.StatusOK, map[string]string{"cleaned_body": cleanProfanity(params.Body)})
+}
+
+var profaneWords = map[string]bool{
+	"kerfuffle": true,
+	"sharbert":  true,
+	"fornax":    true,
+}
+
+// cleanProfanity replaces each profane word (case-insensitive) with ****.
+// Words are split on spaces, so a word with attached punctuation such as
+// "Sharbert!" is treated as a different word and left alone.
+func cleanProfanity(body string) string {
+	words := strings.Split(body, " ")
+	for i, word := range words {
+		if profaneWords[strings.ToLower(word)] {
+			words[i] = "****"
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 func main() {
+	godotenv.Load()
 	// TextHandler emits RFC 3339 (ISO 8601) timestamps; convert them to UTC.
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
@@ -103,10 +131,22 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		slog.Error("failed to open database", "err", err)
+		os.Exit(1)
+	}
+	if err := db.Ping(); err != nil {
+		slog.Error("failed to connect to database", "err", err)
+		os.Exit(1)
+	}
+	dbQueries := database.New(db)
+
 	const port = "8080"
 	const staticPath = "./static"
 
-	cfg := &apiConfig{}
+	cfg := &apiConfig{db: dbQueries}
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler{})
