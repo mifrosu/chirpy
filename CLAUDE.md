@@ -22,7 +22,7 @@ Config comes from env / `.env` (see `.env.example`): `DB_URL` (Postgres connecti
 Routing is a single `http.ServeMux` built in `main()` using Go 1.22+ method-qualified patterns (e.g. `"GET /api/healthz"`):
 
 - `/app/` — `http.FileServer` over `./static`, wrapped in `cfg.middlewareMetricsInc`. Files live under `static/app/` (so `static/app/index.html` is served at `/app/`). Mounting at `/app/` means the mux's own redirect of `/app` is not counted as a hit.
-- `/api/*` — JSON endpoints: `GET /api/healthz`, `POST /api/users`, `POST /api/chirps`, `GET /api/chirps`, `GET /api/chirps/{chirpID}`; the bare `/api/` catch-all is a no-op `apiHandler`.
+- `/api/*` — JSON endpoints: `GET /api/healthz`, `POST /api/users`, `POST /api/login`, `POST /api/chirps`, `GET /api/chirps`, `GET /api/chirps/{chirpID}`; the bare `/api/` catch-all is a no-op `apiHandler`.
 - `/admin/*` — `GET /admin/metrics` (HTML hit count) and `POST /admin/reset` (zeroes the counter and deletes all users; returns 403 unless `PLATFORM=dev`).
 
 `apiConfig` holds shared state (`fileserverHits`, an `atomic.Int32`; `db`, the sqlc `*database.Queries`; `platform`); handlers that need it are methods on `*apiConfig`, stateless ones are plain functions.
@@ -35,4 +35,4 @@ Schema lives in `sql/schema/` as goose migrations (timestamp-prefixed; new ones 
 
 ## Auth
 
-`internal/auth` exposes `HashPassword` and `CheckPasswordHash` (argon2id via `github.com/alexedwards/argon2id`). `POST /api/users` uses `HashPassword`; `CheckPasswordHash` is not yet used by any handler.
+`internal/auth` exposes `HashPassword` and `CheckPasswordHash` (argon2id via `github.com/alexedwards/argon2id`). `POST /api/users` uses `HashPassword`; `POST /api/login` uses `CheckPasswordHash`.

@@ -267,6 +267,52 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, req *http.Request
 	})
 }
 
+// handlerLogin checks the email and password in the request body and responds
+// with 200 and the user. Unknown emails and wrong passwords get the same 401
+// so the response doesn't reveal which emails are registered.
+func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, req *http.Request) {
+	var params struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
+		slog.Error("decode login", "err", err)
+		respondWithError(w, http.StatusBadRequest, "Something went wrong")
+		return
+	}
+	if params.Email == "" || params.Password == "" {
+		respondWithError(w, http.StatusBadRequest, "Email and password are required")
+		return
+	}
+
+	const badCredentials = "Incorrect email or password"
+	user, err := cfg.db.GetUserByEmail(req.Context(), params.Email)
+	if errors.Is(err, sql.ErrNoRows) {
+		respondWithError(w, http.StatusUnauthorized, badCredentials)
+		return
+	}
+	if err != nil {
+		slog.Error("get user", "err", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't log in")
+		return
+	}
+
+	// An error here (e.g. the 'unset' placeholder hash) is treated as a
+	// failed login rather than a server error.
+	match, err := auth.CheckPasswordHash(params.Password, user.HashedPassword)
+	if err != nil || !match {
+		respondWithError(w, http.StatusUnauthorized, badCredentials)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, User{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	})
+}
+
 var profaneWords = map[string]bool{
 	"kerfuffle": true,
 	"sharbert":  true,
@@ -323,6 +369,7 @@ func main() {
 	mux.HandleFunc("GET /api/chirps", cfg.handlerGetChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", cfg.handlerGetChirp)
 	mux.HandleFunc("POST /api/users", cfg.handlerCreateUser)
+	mux.HandleFunc("POST /api/login", cfg.handlerLogin)
 	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", cfg.handlerReset)
 	// Serve only ./static under /app/; FileServer serves static/app/index.html

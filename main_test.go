@@ -166,6 +166,18 @@ func TestHandlerGetChirpInvalidID(t *testing.T) {
 	}
 }
 
+func TestHandlerLoginRejectsMissingFields(t *testing.T) {
+	cfg := &apiConfig{}
+	for _, body := range []string{`{}`, `{"email":"a@b.c"}`, `{"password":"x"}`} {
+		req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		cfg.handlerLogin(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %s: status = %d, want %d", body, rec.Code, http.StatusBadRequest)
+		}
+	}
+}
+
 func TestHandlerReadiness(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handlerReadiness(rec, httptest.NewRequest(http.MethodGet, "/api/healthz", nil))

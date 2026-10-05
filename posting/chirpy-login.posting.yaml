@@ -1,0 +1,13 @@
+name: chirpy-login
+method: POST
+url: http://localhost:8080/api/login
+body:
+  content: |-
+    {
+      "email": "gopher@example.com",
+      "password": "WhenceThouGophletPruneISayThee"
+    }
+  content_type: application/json
+headers:
+- name: content-type
+  value: application/json
