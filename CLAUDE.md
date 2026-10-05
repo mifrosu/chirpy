@@ -4,23 +4,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Chirpy is a small Go web server (stdlib only, no dependencies) built as a Boot.dev backend learning project. All server code lives in `main.go`; tests are in `main_test.go`. `go-notes.md` holds the author's personal Go learning notes (not project docs).
+Chirpy is a small Go web server backed by Postgres, built as a Boot.dev backend learning project. Handlers and routing live in `main.go` (tests in `main_test.go`); password hashing is in `internal/auth`; DB access is sqlc-generated code in `internal/database`. `go-notes.md` holds the author's personal Go learning notes (not project docs).
 
 ## Commands
 
 - Run: `go run .` (serves on `:8080`; must be run from the repo root since the static path is `./static`)
 - Build: `go build -o chirpy .` (the `/chirpy` binary is gitignored)
 - Test all: `go test ./...`
-- Single test: `go test -run TestHandlerReset ./...`
+- Single test: `go test -run TestHandlerResetForbiddenOutsideDev ./...`
+- Migrations: `scripts/migrate.sh up|down|status` (goose; reads `DB_URL` from env or `.env`)
+- Regenerate DB code: `sqlc generate` (run after changing `sql/schema` or `sql/queries`)
+
+Config comes from env / `.env` (see `.env.example`): `DB_URL` (Postgres connection string) and `PLATFORM` (`dev` enables `/admin/reset`).
 
 ## Architecture
 
 Routing is a single `http.ServeMux` built in `main()` using Go 1.22+ method-qualified patterns (e.g. `"GET /api/healthz"`):
 
 - `/app/` — `http.FileServer` over `./static`, wrapped in `cfg.middlewareMetricsInc`. Files live under `static/app/` (so `static/app/index.html` is served at `/app/`). Mounting at `/app/` means the mux's own redirect of `/app` is not counted as a hit.
-- `/api/*` — JSON/API-style endpoints (`GET /api/healthz`); the bare `/api/` catch-all is a no-op `apiHandler`.
-- `/admin/*` — `GET /admin/metrics` (HTML hit count) and `POST /admin/reset` (zeroes the counter).
+- `/api/*` — JSON endpoints: `GET /api/healthz`, `POST /api/users`, `POST /api/chirps`, `GET /api/chirps`, `GET /api/chirps/{chirpID}`; the bare `/api/` catch-all is a no-op `apiHandler`.
+- `/admin/*` — `GET /admin/metrics` (HTML hit count) and `POST /admin/reset` (zeroes the counter and deletes all users; returns 403 unless `PLATFORM=dev`).
 
-`apiConfig` holds shared state (`fileserverHits`, an `atomic.Int32`); handlers that need it are methods on `*apiConfig`, stateless ones are plain functions.
+`apiConfig` holds shared state (`fileserverHits`, an `atomic.Int32`; `db`, the sqlc `*database.Queries`; `platform`); handlers that need it are methods on `*apiConfig`, stateless ones are plain functions.
 
 Logging uses `log/slog` with a TextHandler whose `ReplaceAttr` forces timestamps to UTC (RFC 3339).
+
+## Database
+
+Schema lives in `sql/schema/` as goose migrations (timestamp-prefixed; new ones must sort after existing ones), queries in `sql/queries/`, and `sqlc.yaml` generates `internal/database/` (do not edit by hand). `users.hashed_password` is `NOT NULL DEFAULT 'unset'`; `POST /api/users` does not set it yet. `chirps.user_id` cascades on user delete.
+
+## Auth
+
+`internal/auth` exposes `HashPassword` and `CheckPasswordHash` (argon2id via `github.com/alexedwards/argon2id`). Not yet wired into any handler.
