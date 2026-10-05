@@ -113,6 +113,54 @@ func validateChirp(body string) (string, error) {
 	return cleanProfanity(body), nil
 }
 
+func chirpFromDB(c database.Chirp) Chirp {
+	return Chirp{
+		ID:        c.ID,
+		CreatedAt: c.CreatedAt,
+		UpdatedAt: c.UpdatedAt,
+		Body:      c.Body,
+		UserID:    c.UserID,
+	}
+}
+
+// handlerGetChirps responds with all chirps as a JSON array, oldest first.
+func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, req *http.Request) {
+	dbChirps, err := cfg.db.GetChirps(req.Context())
+	if err != nil {
+		slog.Error("get chirps", "err", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't get chirps")
+		return
+	}
+
+	// Non-nil so an empty result encodes as [] rather than null.
+	chirps := make([]Chirp, 0, len(dbChirps))
+	for _, c := range dbChirps {
+		chirps = append(chirps, chirpFromDB(c))
+	}
+	respondWithJSON(w, http.StatusOK, chirps)
+}
+
+// handlerGetChirp responds with the chirp whose ID is in the request path.
+func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, req *http.Request) {
+	id, err := uuid.Parse(req.PathValue("chirpID"))
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid chirp ID")
+		return
+	}
+
+	chirp, err := cfg.db.GetChirp(req.Context(), id)
+	if errors.Is(err, sql.ErrNoRows) {
+		respondWithError(w, http.StatusNotFound, "Chirp not found")
+		return
+	}
+	if err != nil {
+		slog.Error("get chirp", "err", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't get chirp")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, chirpFromDB(chirp))
+}
+
 // handlerCreateChirp validates a chirp, saves it for the given user and
 // responds with 201 and the new chirp.
 func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, req *http.Request) {
@@ -153,13 +201,7 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	respondWithJSON(w, http.StatusCreated, Chirp{
-		ID:        chirp.ID,
-		CreatedAt: chirp.CreatedAt,
-		UpdatedAt: chirp.UpdatedAt,
-		Body:      chirp.Body,
-		UserID:    chirp.UserID,
-	})
+	respondWithJSON(w, http.StatusCreated, chirpFromDB(chirp))
 }
 
 // User is the JSON representation of a user returned by the API.
@@ -261,6 +303,8 @@ func main() {
 	mux.Handle("/api/", apiHandler{})
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
 	mux.HandleFunc("POST /api/chirps", cfg.handlerCreateChirp)
+	mux.HandleFunc("GET /api/chirps", cfg.handlerGetChirps)
+	mux.HandleFunc("GET /api/chirps/{chirpID}", cfg.handlerGetChirp)
 	mux.HandleFunc("POST /api/users", cfg.handlerCreateUser)
 	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", cfg.handlerReset)

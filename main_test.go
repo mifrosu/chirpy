@@ -151,6 +151,21 @@ func TestHandlerCreateChirpRejectsInvalid(t *testing.T) {
 	}
 }
 
+func TestHandlerGetChirpInvalidID(t *testing.T) {
+	cfg := &apiConfig{}
+	req := httptest.NewRequest(http.MethodGet, "/api/chirps/nope", nil)
+	req.SetPathValue("chirpID", "nope")
+	rec := httptest.NewRecorder()
+	cfg.handlerGetChirp(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if got, want := rec.Body.String(), `{"error":"Invalid chirp ID"}`; got != want {
+		t.Errorf("body = %q, want %q", got, want)
+	}
+}
+
 func TestHandlerReadiness(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handlerReadiness(rec, httptest.NewRequest(http.MethodGet, "/api/healthz", nil))
