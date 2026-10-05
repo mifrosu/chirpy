@@ -75,18 +75,18 @@ func TestHandlerMetricsDoesNotIncrement(t *testing.T) {
 	}
 }
 
-func TestHandlerReset(t *testing.T) {
-	cfg := &apiConfig{}
+func TestHandlerResetForbiddenOutsideDev(t *testing.T) {
+	cfg := &apiConfig{platform: "prod"}
 	cfg.fileserverHits.Store(7)
 
 	rec := httptest.NewRecorder()
-	cfg.handlerReset(rec, httptest.NewRequest(http.MethodPost, "/api/reset", nil))
+	cfg.handlerReset(rec, httptest.NewRequest(http.MethodPost, "/admin/reset", nil))
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
-	if got := cfg.fileserverHits.Load(); got != 0 {
-		t.Errorf("hits = %d after reset, want 0", got)
+	if got := cfg.fileserverHits.Load(); got != 7 {
+		t.Errorf("hits = %d after forbidden reset, want 7", got)
 	}
 }
 

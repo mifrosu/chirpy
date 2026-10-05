@@ -24,6 +24,7 @@ type apiConfig struct {
 	// safely write and read an int across go routines
 	fileserverHits atomic.Int32
 	db             *database.Queries
+	platform       string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -47,7 +48,18 @@ func (cfg *apiConfig) handlerMetrics(w http.ResponseWriter, req *http.Request) {
 `, cfg.fileserverHits.Load())
 }
 
+// handlerReset zeroes the hit counter and deletes all users. It is only
+// allowed when PLATFORM is "dev"; otherwise it responds with 403.
 func (cfg *apiConfig) handlerReset(w http.ResponseWriter, req *http.Request) {
+	if cfg.platform != "dev" {
+		respondWithError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+	if err := cfg.db.DeleteUsers(req.Context()); err != nil {
+		slog.Error("delete users", "err", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't delete users")
+		return
+	}
 	cfg.fileserverHits.Store(0)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -188,7 +200,7 @@ func main() {
 	const port = "8080"
 	const staticPath = "./static"
 
-	cfg := &apiConfig{db: dbQueries}
+	cfg := &apiConfig{db: dbQueries, platform: os.Getenv("PLATFORM")}
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler{})
