@@ -1,10 +1,12 @@
 package main
 
 import (
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMiddlewareMetricsInc(t *testing.T) {
@@ -175,6 +177,30 @@ func TestHandlerLoginRejectsMissingFields(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("body %s: status = %d, want %d", body, rec.Code, http.StatusBadRequest)
 		}
+	}
+}
+
+func TestTokenLifetime(t *testing.T) {
+	secs := func(n int) *int { return &n }
+	tests := []struct {
+		name string
+		in   *int
+		want time.Duration
+	}{
+		{"unspecified", nil, time.Hour},
+		{"short", secs(2), 2 * time.Second},
+		{"exactly one hour", secs(3600), time.Hour},
+		{"over one hour", secs(3601), time.Hour},
+		{"huge", secs(math.MaxInt), time.Hour},
+		{"zero", secs(0), time.Hour},
+		{"negative", secs(-5), time.Hour},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tokenLifetime(tt.in); got != tt.want {
+				t.Errorf("tokenLifetime = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

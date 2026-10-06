@@ -27,6 +27,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	db             *database.Queries
 	platform       string
+	jwtSecret      string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -267,13 +268,32 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, req *http.Request
 	})
 }
 
+const maxTokenLifetime = time.Hour
+
+// tokenLifetime returns the JWT lifetime for a client-requested
+// expires_in_seconds. It defaults to, and is capped at, maxTokenLifetime;
+// missing or non-positive values get the default.
+func tokenLifetime(expiresInSeconds *int) time.Duration {
+	if expiresInSeconds == nil || *expiresInSeconds <= 0 {
+		return maxTokenLifetime
+	}
+	// Compare in seconds first so a huge value can't overflow time.Duration.
+	if *expiresInSeconds >= int(maxTokenLifetime/time.Second) {
+		return maxTokenLifetime
+	}
+	return time.Duration(*expiresInSeconds) * time.Second
+}
+
 // handlerLogin checks the email and password in the request body and responds
-// with 200 and the user. Unknown emails and wrong passwords get the same 401
-// so the response doesn't reveal which emails are registered.
+// with 200, the user and a signed JWT. The optional expires_in_seconds sets the
+// token lifetime (default and maximum one hour). Unknown emails and wrong
+// passwords get the same 401 so the response doesn't reveal which emails are
+// registered.
 func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, req *http.Request) {
 	var params struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email            string `json:"email"`
+		Password         string `json:"password"`
+		ExpiresInSeconds *int   `json:"expires_in_seconds"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
 		slog.Error("decode login", "err", err)
@@ -305,11 +325,24 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
+	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, tokenLifetime(params.ExpiresInSeconds))
+	if err != nil {
+		slog.Error("make jwt", "err", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't log in")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, struct {
+		User
+		Token string `json:"token"`
+	}{
+		User: User{
+			ID:        user.ID,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+			Email:     user.Email,
+		},
+		Token: token,
 	})
 }
 
@@ -345,6 +378,12 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		slog.Error("JWT_SECRET must be set")
+		os.Exit(1)
+	}
+
 	dbURL := os.Getenv("DB_URL")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -360,7 +399,7 @@ func main() {
 	const port = "8080"
 	const staticPath = "./static"
 
-	cfg := &apiConfig{db: dbQueries, platform: os.Getenv("PLATFORM")}
+	cfg := &apiConfig{db: dbQueries, platform: os.Getenv("PLATFORM"), jwtSecret: jwtSecret}
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler{})

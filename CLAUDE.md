@@ -15,7 +15,7 @@ Chirpy is a small Go web server backed by Postgres, built as a Boot.dev backend 
 - Migrations: `scripts/migrate.sh up|down|status` (goose; reads `DB_URL` from env or `.env`)
 - Regenerate DB code: `sqlc generate` (run after changing `sql/schema` or `sql/queries`)
 
-Config comes from env / `.env` (see `.env.example`): `DB_URL` (Postgres connection string) and `PLATFORM` (`dev` enables `/admin/reset`).
+Config comes from env / `.env` (see `.env.example`): `DB_URL` (Postgres connection string) and `PLATFORM` (`dev` enables `/admin/reset`), and `JWT_SECRET` (signing key for JWTs; the server refuses to start without it).
 
 ## Architecture
 
@@ -25,7 +25,7 @@ Routing is a single `http.ServeMux` built in `main()` using Go 1.22+ method-qual
 - `/api/*` — JSON endpoints: `GET /api/healthz`, `POST /api/users`, `POST /api/login`, `POST /api/chirps`, `GET /api/chirps`, `GET /api/chirps/{chirpID}`; the bare `/api/` catch-all is a no-op `apiHandler`.
 - `/admin/*` — `GET /admin/metrics` (HTML hit count) and `POST /admin/reset` (zeroes the counter and deletes all users; returns 403 unless `PLATFORM=dev`).
 
-`apiConfig` holds shared state (`fileserverHits`, an `atomic.Int32`; `db`, the sqlc `*database.Queries`; `platform`); handlers that need it are methods on `*apiConfig`, stateless ones are plain functions.
+`apiConfig` holds shared state (`fileserverHits`, an `atomic.Int32`; `db`, the sqlc `*database.Queries`; `platform`; `jwtSecret`); handlers that need it are methods on `*apiConfig`, stateless ones are plain functions.
 
 Logging uses `log/slog` with a TextHandler whose `ReplaceAttr` forces timestamps to UTC (RFC 3339).
 
@@ -35,4 +35,4 @@ Schema lives in `sql/schema/` as goose migrations (timestamp-prefixed; new ones 
 
 ## Auth
 
-`internal/auth` exposes `HashPassword` and `CheckPasswordHash` (argon2id via `github.com/alexedwards/argon2id`) and `MakeJWT` (HS256 via `github.com/golang-jwt/jwt/v5`, issuer `chirpy-access`, subject = user ID) and `ValidateJWT` (checks signature, expiry and issuer; returns the user ID). `GetBearerToken` extracts the token from the `Authorization: Bearer` header. None of the JWT or bearer functions are used by a handler yet. `POST /api/users` uses `HashPassword`; `POST /api/login` uses `CheckPasswordHash`.
+`internal/auth` exposes `HashPassword` and `CheckPasswordHash` (argon2id via `github.com/alexedwards/argon2id`) and `MakeJWT` (HS256 via `github.com/golang-jwt/jwt/v5`, issuer `chirpy-access`, subject = user ID) and `ValidateJWT` (checks signature, expiry and issuer; returns the user ID). `GetBearerToken` extracts the token from the `Authorization: Bearer` header. `ValidateJWT` and `GetBearerToken` are not used by a handler yet. `POST /api/users` uses `HashPassword`; `POST /api/login` uses `CheckPasswordHash` and `MakeJWT`, returning the user plus a `token` (lifetime from optional `expires_in_seconds`, default and max 1 hour).
