@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/hex"
 	"net/http"
 	"testing"
 	"time"
@@ -171,5 +172,20 @@ func TestGetBearerTokenCanonicalisesHeaderName(t *testing.T) {
 	got, err := GetBearerToken(h)
 	if err != nil || got != "abc" {
 		t.Fatalf("got %q, err %v", got, err)
+	}
+}
+
+func TestMakeRefreshToken(t *testing.T) {
+	a, b := MakeRefreshToken(), MakeRefreshToken()
+	for _, tok := range []string{a, b} {
+		if len(tok) != 64 {
+			t.Errorf("len(%q) = %d, want 64", tok, len(tok))
+		}
+		if _, err := hex.DecodeString(tok); err != nil {
+			t.Errorf("%q is not valid hex: %v", tok, err)
+		}
+	}
+	if a == b {
+		t.Error("two refresh tokens were identical")
 	}
 }

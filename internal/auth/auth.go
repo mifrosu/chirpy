@@ -2,6 +2,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -75,4 +77,13 @@ func GetBearerToken(headers http.Header) (string, error) {
 		return "", errors.New("Authorization header has an empty Bearer token")
 	}
 	return token, nil
+}
+
+// MakeRefreshToken returns a random 256-bit token as a 64-character hex string.
+func MakeRefreshToken() string {
+	b := make([]byte, 32)
+	// Since Go 1.24 crypto/rand.Read never returns an error: a failure of the
+	// system random source crashes the program instead.
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
