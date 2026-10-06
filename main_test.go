@@ -267,6 +267,58 @@ func TestHandlerRevokeRejectsMissingBearer(t *testing.T) {
 	}
 }
 
+func TestHandlerUpdateUserAuth(t *testing.T) {
+	const secret = "s3cret"
+	userID := uuid.New()
+	expired, _ := auth.MakeJWT(userID, secret, -time.Minute)
+	wrongSecret, _ := auth.MakeJWT(userID, "other", time.Hour)
+	body := `{"email":"a@b.c","password":"pw"}`
+
+	for name, header := range map[string]string{
+		"no header":    "",
+		"not bearer":   "Basic abc",
+		"malformed":    "Bearer nope",
+		"expired":      "Bearer " + expired,
+		"wrong secret": "Bearer " + wrongSecret,
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := &apiConfig{jwtSecret: secret}
+			req := httptest.NewRequest(http.MethodPut, "/api/users", strings.NewReader(body))
+			if header != "" {
+				req.Header.Set("Authorization", header)
+			}
+			rec := httptest.NewRecorder()
+			cfg.handlerUpdateUser(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+			}
+		})
+	}
+}
+
+func TestHandlerUpdateUserRejectsInvalidBody(t *testing.T) {
+	const secret = "s3cret"
+	token, _ := auth.MakeJWT(uuid.New(), secret, time.Hour)
+	for name, body := range map[string]string{
+		"not json":         `nope`,
+		"missing password": `{"email":"a@b.c"}`,
+		"missing email":    `{"password":"pw"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := &apiConfig{jwtSecret: secret}
+			req := httptest.NewRequest(http.MethodPut, "/api/users", strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			cfg.handlerUpdateUser(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
 func TestHandlerReadiness(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handlerReadiness(rec, httptest.NewRequest(http.MethodGet, "/api/healthz", nil))

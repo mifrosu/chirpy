@@ -1,0 +1,15 @@
+name: chirpy-update-user
+method: PUT
+url: http://localhost:8080/api/users
+body:
+  content: |-
+    {
+      "email": "gopher@example.com",
+      "password": "NewPasswordForTheGophlet"
+    }
+  content_type: application/json
+headers:
+- name: content-type
+  value: application/json
+- name: authorization
+  value: Bearer <token from POST /api/login>
