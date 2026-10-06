@@ -35,4 +35,4 @@ Schema lives in `sql/schema/` as goose migrations (timestamp-prefixed; new ones 
 
 ## Auth
 
-`internal/auth` exposes `HashPassword` and `CheckPasswordHash` (argon2id via `github.com/alexedwards/argon2id`). `POST /api/users` uses `HashPassword`; `POST /api/login` uses `CheckPasswordHash`.
+`internal/auth` exposes `HashPassword` and `CheckPasswordHash` (argon2id via `github.com/alexedwards/argon2id`) and `MakeJWT` (HS256 via `github.com/golang-jwt/jwt/v5`, issuer `chirpy`, subject = user ID; not yet used by any handler). `POST /api/users` uses `HashPassword`; `POST /api/login` uses `CheckPasswordHash`.
