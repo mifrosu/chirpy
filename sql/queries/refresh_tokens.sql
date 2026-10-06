@@ -10,3 +10,12 @@ VALUES (
     NOW() + INTERVAL '60 days'
 )
 RETURNING *;
+
+-- name: GetUserFromRefreshToken :one
+-- Returns the token's user only while the token is neither revoked nor expired.
+SELECT users.*
+FROM users
+JOIN refresh_tokens ON refresh_tokens.user_id = users.id
+WHERE refresh_tokens.token = $1
+  AND refresh_tokens.revoked_at IS NULL
+  AND refresh_tokens.expires_at > NOW();
