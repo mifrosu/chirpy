@@ -35,4 +35,4 @@ Schema lives in `sql/schema/` as goose migrations (timestamp-prefixed; new ones 
 
 ## Auth
 
-`internal/auth` exposes `HashPassword` and `CheckPasswordHash` (argon2id via `github.com/alexedwards/argon2id`) and `MakeJWT` (HS256 via `github.com/golang-jwt/jwt/v5`, issuer `chirpy-access`, subject = user ID) and `ValidateJWT` (checks signature, expiry and issuer; returns the user ID). Neither JWT function is used by a handler yet. `POST /api/users` uses `HashPassword`; `POST /api/login` uses `CheckPasswordHash`.
+`internal/auth` exposes `HashPassword` and `CheckPasswordHash` (argon2id via `github.com/alexedwards/argon2id`) and `MakeJWT` (HS256 via `github.com/golang-jwt/jwt/v5`, issuer `chirpy-access`, subject = user ID) and `ValidateJWT` (checks signature, expiry and issuer; returns the user ID). `GetBearerToken` extracts the token from the `Authorization: Bearer` header. None of the JWT or bearer functions are used by a handler yet. `POST /api/users` uses `HashPassword`; `POST /api/login` uses `CheckPasswordHash`.

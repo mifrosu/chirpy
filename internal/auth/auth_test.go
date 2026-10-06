@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -130,5 +131,45 @@ func TestValidateJWT(t *testing.T) {
 				t.Errorf("id = %v, want uuid.Nil on error", got)
 			}
 		})
+	}
+}
+
+func TestGetBearerToken(t *testing.T) {
+	tests := []struct {
+		name    string
+		headers http.Header
+		want    string
+		wantErr bool
+	}{
+		{"valid", http.Header{"Authorization": {"Bearer abc.def.ghi"}}, "abc.def.ghi", false},
+		{"extra whitespace", http.Header{"Authorization": {"  Bearer   abc  "}}, "abc", false},
+		{"case-insensitive scheme", http.Header{"Authorization": {"bearer abc"}}, "abc", false},
+		{"missing header", http.Header{}, "", true},
+		{"nil headers", nil, "", true},
+		{"empty header", http.Header{"Authorization": {""}}, "", true},
+		{"scheme only", http.Header{"Authorization": {"Bearer"}}, "", true},
+		{"scheme with blank token", http.Header{"Authorization": {"Bearer   "}}, "", true},
+		{"other scheme", http.Header{"Authorization": {"Basic dXNlcjpwYXNz"}}, "", true},
+		{"no scheme", http.Header{"Authorization": {"abc"}}, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetBearerToken(tt.headers)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("token = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetBearerTokenCanonicalisesHeaderName(t *testing.T) {
+	h := http.Header{}
+	h.Set("authorization", "Bearer abc")
+	got, err := GetBearerToken(h)
+	if err != nil || got != "abc" {
+		t.Fatalf("got %q, err %v", got, err)
 	}
 }

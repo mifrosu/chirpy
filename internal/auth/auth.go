@@ -1,8 +1,11 @@
-// Package auth provides password hashing and JWT helpers.
+// Package auth provides password hashing, JWT and request auth helpers.
 package auth
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -53,4 +56,23 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 		return uuid.Nil, fmt.Errorf("invalid subject claim: %w", err)
 	}
 	return id, nil
+}
+
+// GetBearerToken returns the token from an "Authorization: Bearer TOKEN"
+// header, with the scheme and surrounding whitespace removed. It returns an
+// error if the header is missing, isn't a Bearer credential, or has no token.
+func GetBearerToken(headers http.Header) (string, error) {
+	value := strings.TrimSpace(headers.Get("Authorization"))
+	if value == "" {
+		return "", errors.New("missing Authorization header")
+	}
+	scheme, token, _ := strings.Cut(value, " ")
+	if !strings.EqualFold(scheme, "Bearer") {
+		return "", errors.New("Authorization header is not a Bearer token")
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", errors.New("Authorization header has an empty Bearer token")
+	}
+	return token, nil
 }
