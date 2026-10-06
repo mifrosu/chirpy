@@ -47,8 +47,8 @@ func TestMakeJWT(t *testing.T) {
 	if claims.Subject != id.String() {
 		t.Errorf("subject = %q, want %q", claims.Subject, id)
 	}
-	if claims.Issuer != "chirpy" {
-		t.Errorf("issuer = %q, want chirpy", claims.Issuer)
+	if claims.Issuer != "chirpy-access" {
+		t.Errorf("issuer = %q, want chirpy-access", claims.Issuer)
 	}
 
 	if _, err := jwt.ParseWithClaims(signed, &jwt.RegisteredClaims{}, func(*jwt.Token) (any, error) {
