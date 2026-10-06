@@ -22,7 +22,7 @@ Config comes from env / `.env` (see `.env.example`): `DB_URL` (Postgres connecti
 Routing is a single `http.ServeMux` built in `main()` using Go 1.22+ method-qualified patterns (e.g. `"GET /api/healthz"`):
 
 - `/app/` — `http.FileServer` over `./static`, wrapped in `cfg.middlewareMetricsInc`. Files live under `static/app/` (so `static/app/index.html` is served at `/app/`). Mounting at `/app/` means the mux's own redirect of `/app` is not counted as a hit.
-- `/api/*` — JSON endpoints: `GET /api/healthz`, `POST /api/users`, `POST /api/login`, `POST /api/chirps` (requires a Bearer JWT: 401 if invalid; the optional body `user_id` must match the token's user, else 403), `GET /api/chirps`, `GET /api/chirps/{chirpID}`; the bare `/api/` catch-all is a no-op `apiHandler`.
+- `/api/*` — JSON endpoints: `GET /api/healthz`, `POST /api/users`, `POST /api/login`, `POST /api/refresh` (Bearer refresh token in, new 1-hour access token out; 401 if missing, unknown, expired or revoked), `POST /api/chirps` (requires a Bearer JWT: 401 if invalid; the optional body `user_id` must match the token's user, else 403), `GET /api/chirps`, `GET /api/chirps/{chirpID}`; the bare `/api/` catch-all is a no-op `apiHandler`.
 - `/admin/*` — `GET /admin/metrics` (HTML hit count) and `POST /admin/reset` (zeroes the counter and deletes all users; returns 403 unless `PLATFORM=dev`).
 
 `apiConfig` holds shared state (`fileserverHits`, an `atomic.Int32`; `db`, the sqlc `*database.Queries`; `platform`; `jwtSecret`); handlers that need it are methods on `*apiConfig`, stateless ones are plain functions.

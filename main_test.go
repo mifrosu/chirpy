@@ -232,6 +232,25 @@ func TestHandlerLoginRejectsMissingFields(t *testing.T) {
 	}
 }
 
+func TestHandlerRefreshRejectsMissingBearer(t *testing.T) {
+	cfg := &apiConfig{}
+	for _, header := range []string{"", "Basic abc", "Bearer"} {
+		req := httptest.NewRequest(http.MethodPost, "/api/refresh", nil)
+		if header != "" {
+			req.Header.Set("Authorization", header)
+		}
+		rec := httptest.NewRecorder()
+		cfg.handlerRefresh(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("header %q: status = %d, want %d", header, rec.Code, http.StatusUnauthorized)
+		}
+		if got, want := rec.Body.String(), `{"error":"Unauthorized"}`; got != want {
+			t.Errorf("header %q: body = %q, want %q", header, got, want)
+		}
+	}
+}
+
 func TestHandlerReadiness(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handlerReadiness(rec, httptest.NewRequest(http.MethodGet, "/api/healthz", nil))

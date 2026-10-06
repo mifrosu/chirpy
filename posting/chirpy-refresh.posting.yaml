@@ -1,0 +1,6 @@
+name: chirpy-refresh
+method: POST
+url: http://localhost:8080/api/refresh
+headers:
+- name: authorization
+  value: Bearer <refresh_token from POST /api/login>

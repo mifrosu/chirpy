@@ -362,6 +362,41 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, req *http.Request) {
 	})
 }
 
+// handlerRefresh takes a refresh token from the Authorization: Bearer header
+// (no request body) and responds with 200 and a new one-hour access token for
+// its user. A missing, unknown, expired or revoked token gets a 401.
+func (cfg *apiConfig) handlerRefresh(w http.ResponseWriter, req *http.Request) {
+	refreshToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	// GetUserFromRefreshToken only matches tokens that are neither expired
+	// nor revoked.
+	user, err := cfg.db.GetUserFromRefreshToken(req.Context(), refreshToken)
+	if errors.Is(err, sql.ErrNoRows) {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	if err != nil {
+		slog.Error("get user from refresh token", "err", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't refresh token")
+		return
+	}
+
+	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, accessTokenLifetime)
+	if err != nil {
+		slog.Error("make jwt", "err", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't refresh token")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, struct {
+		Token string `json:"token"`
+	}{Token: token})
+}
+
 var profaneWords = map[string]bool{
 	"kerfuffle": true,
 	"sharbert":  true,
@@ -425,6 +460,7 @@ func main() {
 	mux.HandleFunc("GET /api/chirps/{chirpID}", cfg.handlerGetChirp)
 	mux.HandleFunc("POST /api/users", cfg.handlerCreateUser)
 	mux.HandleFunc("POST /api/login", cfg.handlerLogin)
+	mux.HandleFunc("POST /api/refresh", cfg.handlerRefresh)
 	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", cfg.handlerReset)
 	// Serve only ./static under /app/; FileServer serves static/app/index.html
