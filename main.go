@@ -287,32 +287,16 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, req *http.Request
 	})
 }
 
-const maxTokenLifetime = time.Hour
-
-// tokenLifetime returns the JWT lifetime for a client-requested
-// expires_in_seconds. It defaults to, and is capped at, maxTokenLifetime;
-// missing or non-positive values get the default.
-func tokenLifetime(expiresInSeconds *int) time.Duration {
-	if expiresInSeconds == nil || *expiresInSeconds <= 0 {
-		return maxTokenLifetime
-	}
-	// Compare in seconds first so a huge value can't overflow time.Duration.
-	if *expiresInSeconds >= int(maxTokenLifetime/time.Second) {
-		return maxTokenLifetime
-	}
-	return time.Duration(*expiresInSeconds) * time.Second
-}
+const accessTokenLifetime = time.Hour
 
 // handlerLogin checks the email and password in the request body and responds
-// with 200, the user and a signed JWT. The optional expires_in_seconds sets the
-// token lifetime (default and maximum one hour). Unknown emails and wrong
-// passwords get the same 401 so the response doesn't reveal which emails are
-// registered.
+// with 200, the user, a one-hour access token (JWT) and a 60-day refresh token
+// stored in the database. Unknown emails and wrong passwords get the same 401
+// so the response doesn't reveal which emails are registered.
 func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, req *http.Request) {
 	var params struct {
-		Email            string `json:"email"`
-		Password         string `json:"password"`
-		ExpiresInSeconds *int   `json:"expires_in_seconds"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
 		slog.Error("decode login", "err", err)
@@ -344,16 +328,28 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, tokenLifetime(params.ExpiresInSeconds))
+	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, accessTokenLifetime)
 	if err != nil {
 		slog.Error("make jwt", "err", err)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't log in")
 		return
 	}
 
+	// revoked_at is left NULL on creation.
+	refreshToken, err := cfg.db.CreateRefreshToken(req.Context(), database.CreateRefreshTokenParams{
+		Token:  auth.MakeRefreshToken(),
+		UserID: user.ID,
+	})
+	if err != nil {
+		slog.Error("create refresh token", "err", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't log in")
+		return
+	}
+
 	respondWithJSON(w, http.StatusOK, struct {
 		User
-		Token string `json:"token"`
+		Token        string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
 	}{
 		User: User{
 			ID:        user.ID,
@@ -361,7 +357,8 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, req *http.Request) {
 			UpdatedAt: user.UpdatedAt,
 			Email:     user.Email,
 		},
-		Token: token,
+		Token:        token,
+		RefreshToken: refreshToken.Token,
 	})
 }
 
