@@ -1,0 +1,6 @@
+name: chirpy-delete-chirp
+method: DELETE
+url: http://localhost:8080/api/chirps/<chirp id>
+headers:
+- name: authorization
+  value: Bearer <token from POST /api/login>

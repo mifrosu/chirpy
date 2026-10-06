@@ -319,6 +319,42 @@ func TestHandlerUpdateUserRejectsInvalidBody(t *testing.T) {
 	}
 }
 
+func TestHandlerDeleteChirpRejectsBadRequests(t *testing.T) {
+	const secret = "s3cret"
+	userID := uuid.New()
+	valid, _ := auth.MakeJWT(userID, secret, time.Hour)
+	expired, _ := auth.MakeJWT(userID, secret, -time.Minute)
+
+	tests := []struct {
+		name     string
+		header   string
+		chirpID  string
+		wantCode int
+	}{
+		{"no header", "", uuid.NewString(), http.StatusUnauthorized},
+		{"not bearer", "Basic abc", uuid.NewString(), http.StatusUnauthorized},
+		{"malformed token", "Bearer nope", uuid.NewString(), http.StatusUnauthorized},
+		{"expired token", "Bearer " + expired, uuid.NewString(), http.StatusUnauthorized},
+		{"invalid chirp ID", "Bearer " + valid, "nope", http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &apiConfig{jwtSecret: secret}
+			req := httptest.NewRequest(http.MethodDelete, "/api/chirps/"+tt.chirpID, nil)
+			req.SetPathValue("chirpID", tt.chirpID)
+			if tt.header != "" {
+				req.Header.Set("Authorization", tt.header)
+			}
+			rec := httptest.NewRecorder()
+			cfg.handlerDeleteChirp(rec, req)
+
+			if rec.Code != tt.wantCode {
+				t.Errorf("status = %d, want %d", rec.Code, tt.wantCode)
+			}
+		})
+	}
+}
+
 func TestHandlerReadiness(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handlerReadiness(rec, httptest.NewRequest(http.MethodGet, "/api/healthz", nil))
