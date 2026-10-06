@@ -397,6 +397,26 @@ func (cfg *apiConfig) handlerRefresh(w http.ResponseWriter, req *http.Request) {
 	}{Token: token})
 }
 
+// handlerRevoke takes a refresh token from the Authorization: Bearer header
+// (no request body), revokes it and responds with 204. Revoking an unknown or
+// already-revoked token is not an error, so the call is idempotent; a missing
+// header gets a 401.
+func (cfg *apiConfig) handlerRevoke(w http.ResponseWriter, req *http.Request) {
+	refreshToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	if err := cfg.db.RevokeRefreshToken(req.Context(), refreshToken); err != nil {
+		slog.Error("revoke refresh token", "err", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't revoke token")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 var profaneWords = map[string]bool{
 	"kerfuffle": true,
 	"sharbert":  true,
@@ -461,6 +481,7 @@ func main() {
 	mux.HandleFunc("POST /api/users", cfg.handlerCreateUser)
 	mux.HandleFunc("POST /api/login", cfg.handlerLogin)
 	mux.HandleFunc("POST /api/refresh", cfg.handlerRefresh)
+	mux.HandleFunc("POST /api/revoke", cfg.handlerRevoke)
 	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", cfg.handlerReset)
 	// Serve only ./static under /app/; FileServer serves static/app/index.html

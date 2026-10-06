@@ -251,6 +251,22 @@ func TestHandlerRefreshRejectsMissingBearer(t *testing.T) {
 	}
 }
 
+func TestHandlerRevokeRejectsMissingBearer(t *testing.T) {
+	cfg := &apiConfig{}
+	for _, header := range []string{"", "Basic abc", "Bearer"} {
+		req := httptest.NewRequest(http.MethodPost, "/api/revoke", nil)
+		if header != "" {
+			req.Header.Set("Authorization", header)
+		}
+		rec := httptest.NewRecorder()
+		cfg.handlerRevoke(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("header %q: status = %d, want %d", header, rec.Code, http.StatusUnauthorized)
+		}
+	}
+}
+
 func TestHandlerReadiness(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handlerReadiness(rec, httptest.NewRequest(http.MethodGet, "/api/healthz", nil))

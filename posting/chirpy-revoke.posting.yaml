@@ -1,0 +1,6 @@
+name: chirpy-revoke
+method: POST
+url: http://localhost:8080/api/revoke
+headers:
+- name: authorization
+  value: Bearer <refresh_token from POST /api/login>
