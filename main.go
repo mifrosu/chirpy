@@ -163,9 +163,22 @@ func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, req *http.Request) 
 	respondWithJSON(w, http.StatusOK, chirpFromDB(chirp))
 }
 
-// handlerCreateChirp validates a chirp, saves it for the given user and
-// responds with 201 and the new chirp.
+// handlerCreateChirp validates a chirp, saves it for the authenticated user and
+// responds with 201 and the new chirp. The request must carry a valid JWT as a
+// Bearer token (401 otherwise). The body's user_id is optional, but if present
+// it must be the token's user (403 otherwise), so users can't post as others.
 func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, req *http.Request) {
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
 	var params struct {
 		Body   string `json:"body"`
 		UserID string `json:"user_id"`
@@ -176,10 +189,16 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	userID, err := uuid.Parse(params.UserID)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid user_id")
-		return
+	if params.UserID != "" {
+		bodyUserID, err := uuid.Parse(params.UserID)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid user_id")
+			return
+		}
+		if bodyUserID != userID {
+			respondWithError(w, http.StatusForbidden, "Cannot post a chirp as another user")
+			return
+		}
 	}
 
 	cleaned, err := validateChirp(params.Body)

@@ -4,10 +4,11 @@ url: http://localhost:8080/api/chirps
 body:
   content: |-
     {
-      "body": "Greetings, shipmate",
-      "user_id": "4872ddfa-d195-4ee1-a446-24da1a68fb9b"
+      "body": "Greetings, shipmate"
     }
   content_type: application/json
 headers:
 - name: content-type
   value: application/json
+- name: authorization
+  value: Bearer <token from POST /api/login>

@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/scruffling/chirpy/internal/auth"
 )
 
 func TestMiddlewareMetricsInc(t *testing.T) {
@@ -125,7 +128,12 @@ func TestValidateChirp(t *testing.T) {
 // TestHandlerCreateChirpRejectsInvalid covers requests rejected before any
 // database access, so the config has no db.
 func TestHandlerCreateChirpRejectsInvalid(t *testing.T) {
-	const userID = "123e4567-e89b-12d3-a456-426614174000"
+	const secret = "s3cret"
+	userID := uuid.New()
+	token, err := auth.MakeJWT(userID, secret, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name     string
 		body     string
@@ -133,18 +141,63 @@ func TestHandlerCreateChirpRejectsInvalid(t *testing.T) {
 	}{
 		{"invalid JSON", `not json`, `{"error":"Something went wrong"}`},
 		{"empty request body", ``, `{"error":"Something went wrong"}`},
-		{"missing user_id", `{"body":"hi"}`, `{"error":"Invalid user_id"}`},
 		{"malformed user_id", `{"body":"hi","user_id":"nope"}`, `{"error":"Invalid user_id"}`},
-		{"too long", `{"body":"` + strings.Repeat("a", 141) + `","user_id":"` + userID + `"}`, `{"error":"Chirp is too long"}`},
+		{"too long", `{"body":"` + strings.Repeat("a", 141) + `","user_id":"` + userID.String() + `"}`, `{"error":"Chirp is too long"}`},
+		{"too long without user_id", `{"body":"` + strings.Repeat("a", 141) + `"}`, `{"error":"Chirp is too long"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &apiConfig{}
+			cfg := &apiConfig{jwtSecret: secret}
+			req := httptest.NewRequest(http.MethodPost, "/api/chirps", strings.NewReader(tt.body))
+			req.Header.Set("Authorization", "Bearer "+token)
 			rec := httptest.NewRecorder()
-			cfg.handlerCreateChirp(rec, httptest.NewRequest(http.MethodPost, "/api/chirps", strings.NewReader(tt.body)))
+			cfg.handlerCreateChirp(rec, req)
 
 			if rec.Code != http.StatusBadRequest {
 				t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+			if got := rec.Body.String(); got != tt.wantJSON {
+				t.Errorf("body = %q, want %q", got, tt.wantJSON)
+			}
+		})
+	}
+}
+
+func TestHandlerCreateChirpAuth(t *testing.T) {
+	const secret = "s3cret"
+	userID := uuid.New()
+	valid, _ := auth.MakeJWT(userID, secret, time.Hour)
+	expired, _ := auth.MakeJWT(userID, secret, -time.Minute)
+	wrongSecret, _ := auth.MakeJWT(userID, "other", time.Hour)
+	body := `{"body":"hi","user_id":"` + userID.String() + `"}`
+	otherUser := `{"body":"hi","user_id":"` + uuid.New().String() + `"}`
+
+	tests := []struct {
+		name       string
+		authHeader string
+		body       string
+		wantCode   int
+		wantJSON   string
+	}{
+		{"no header", "", body, http.StatusUnauthorized, `{"error":"Unauthorized"}`},
+		{"not bearer", "Basic abc", body, http.StatusUnauthorized, `{"error":"Unauthorized"}`},
+		{"garbage token", "Bearer nope", body, http.StatusUnauthorized, `{"error":"Unauthorized"}`},
+		{"expired token", "Bearer " + expired, body, http.StatusUnauthorized, `{"error":"Unauthorized"}`},
+		{"wrong secret", "Bearer " + wrongSecret, body, http.StatusUnauthorized, `{"error":"Unauthorized"}`},
+		{"user_id of another user", "Bearer " + valid, otherUser, http.StatusForbidden, `{"error":"Cannot post a chirp as another user"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &apiConfig{jwtSecret: secret}
+			req := httptest.NewRequest(http.MethodPost, "/api/chirps", strings.NewReader(tt.body))
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+			rec := httptest.NewRecorder()
+			cfg.handlerCreateChirp(rec, req)
+
+			if rec.Code != tt.wantCode {
+				t.Errorf("status = %d, want %d", rec.Code, tt.wantCode)
 			}
 			if got := rec.Body.String(); got != tt.wantJSON {
 				t.Errorf("body = %q, want %q", got, tt.wantJSON)
