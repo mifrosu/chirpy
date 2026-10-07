@@ -1,0 +1,15 @@
+name: chirpy-polka-webhook
+method: POST
+url: http://localhost:8080/api/polka/webhooks
+body:
+  content: |-
+    {
+      "event": "user.upgraded",
+      "data": {
+        "user_id": "3311741c-680c-4546-99f3-fc9efac2036c"
+      }
+    }
+  content_type: application/json
+headers:
+- name: content-type
+  value: application/json

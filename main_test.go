@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/scruffling/chirpy/internal/auth"
+	"github.com/scruffling/chirpy/internal/database"
 )
 
 func TestMiddlewareMetricsInc(t *testing.T) {
@@ -352,6 +354,63 @@ func TestHandlerDeleteChirpRejectsBadRequests(t *testing.T) {
 				t.Errorf("status = %d, want %d", rec.Code, tt.wantCode)
 			}
 		})
+	}
+}
+
+func TestHandlerPolkaWebhookIgnoresOtherEvents(t *testing.T) {
+	// A nil db proves these events never reach the database.
+	cfg := &apiConfig{}
+	for name, body := range map[string]string{
+		"other event":         `{"event":"user.payment_failed","data":{"user_id":"3311741c-680c-4546-99f3-fc9efac2036c"}}`,
+		"other event no data": `{"event":"user.created"}`,
+		"empty event":         `{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/polka/webhooks", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+			cfg.handlerPolkaWebhook(rec, req)
+
+			if rec.Code != http.StatusNoContent {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusNoContent)
+			}
+			if rec.Body.Len() != 0 {
+				t.Errorf("body = %q, want empty", rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandlerPolkaWebhookRejectsBadRequests(t *testing.T) {
+	cfg := &apiConfig{}
+	for name, body := range map[string]string{
+		"not json":        `nope`,
+		"invalid user_id": `{"event":"user.upgraded","data":{"user_id":"nope"}}`,
+		"missing user_id": `{"event":"user.upgraded"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/polka/webhooks", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+			cfg.handlerPolkaWebhook(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
+func TestUserFromDB(t *testing.T) {
+	id := uuid.New()
+	got := userFromDB(database.User{ID: id, Email: "a@b.c", HashedPassword: "secret", IsChirpyRed: true})
+	if got.ID != id || got.Email != "a@b.c" || !got.IsChirpyRed {
+		t.Errorf("userFromDB = %+v", got)
+	}
+	b, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"is_chirpy_red":true`) || strings.Contains(string(b), "secret") {
+		t.Errorf("json = %s", b)
 	}
 }
 
