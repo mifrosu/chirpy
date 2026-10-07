@@ -64,19 +64,33 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 // header, with the scheme and surrounding whitespace removed. It returns an
 // error if the header is missing, isn't a Bearer credential, or has no token.
 func GetBearerToken(headers http.Header) (string, error) {
+	return getAuthorizationCredential(headers, "Bearer")
+}
+
+// GetAPIKey returns the key from an "Authorization: ApiKey THE_KEY" header,
+// with the scheme and surrounding whitespace removed. It returns an error if
+// the header is missing, isn't an ApiKey credential, or has no key.
+func GetAPIKey(headers http.Header) (string, error) {
+	return getAuthorizationCredential(headers, "ApiKey")
+}
+
+// getAuthorizationCredential returns the credential from an Authorization
+// header of the form "<scheme> <credential>". The scheme is matched
+// case-insensitively.
+func getAuthorizationCredential(headers http.Header, wantScheme string) (string, error) {
 	value := strings.TrimSpace(headers.Get("Authorization"))
 	if value == "" {
 		return "", errors.New("missing Authorization header")
 	}
-	scheme, token, _ := strings.Cut(value, " ")
-	if !strings.EqualFold(scheme, "Bearer") {
-		return "", errors.New("Authorization header is not a Bearer token")
+	scheme, credential, _ := strings.Cut(value, " ")
+	if !strings.EqualFold(scheme, wantScheme) {
+		return "", fmt.Errorf("Authorization header is not an %s credential", wantScheme)
 	}
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return "", errors.New("Authorization header has an empty Bearer token")
+	credential = strings.TrimSpace(credential)
+	if credential == "" {
+		return "", fmt.Errorf("Authorization header has an empty %s credential", wantScheme)
 	}
-	return token, nil
+	return credential, nil
 }
 
 // MakeRefreshToken returns a random 256-bit token as a 64-character hex string.

@@ -359,7 +359,7 @@ func TestHandlerDeleteChirpRejectsBadRequests(t *testing.T) {
 
 func TestHandlerPolkaWebhookIgnoresOtherEvents(t *testing.T) {
 	// A nil db proves these events never reach the database.
-	cfg := &apiConfig{}
+	cfg := &apiConfig{polkaKey: "key"}
 	for name, body := range map[string]string{
 		"other event":         `{"event":"user.payment_failed","data":{"user_id":"3311741c-680c-4546-99f3-fc9efac2036c"}}`,
 		"other event no data": `{"event":"user.created"}`,
@@ -367,6 +367,7 @@ func TestHandlerPolkaWebhookIgnoresOtherEvents(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/polka/webhooks", strings.NewReader(body))
+			req.Header.Set("Authorization", "ApiKey key")
 			rec := httptest.NewRecorder()
 			cfg.handlerPolkaWebhook(rec, req)
 
@@ -381,7 +382,7 @@ func TestHandlerPolkaWebhookIgnoresOtherEvents(t *testing.T) {
 }
 
 func TestHandlerPolkaWebhookRejectsBadRequests(t *testing.T) {
-	cfg := &apiConfig{}
+	cfg := &apiConfig{polkaKey: "key"}
 	for name, body := range map[string]string{
 		"not json":        `nope`,
 		"invalid user_id": `{"event":"user.upgraded","data":{"user_id":"nope"}}`,
@@ -389,11 +390,44 @@ func TestHandlerPolkaWebhookRejectsBadRequests(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/polka/webhooks", strings.NewReader(body))
+			req.Header.Set("Authorization", "ApiKey key")
 			rec := httptest.NewRecorder()
 			cfg.handlerPolkaWebhook(rec, req)
 
 			if rec.Code != http.StatusBadRequest {
 				t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
+func TestHandlerPolkaWebhookRequiresAPIKey(t *testing.T) {
+	const body = `{"event":"user.upgraded","data":{"user_id":"3311741c-680c-4546-99f3-fc9efac2036c"}}`
+	tests := []struct {
+		name     string
+		polkaKey string
+		header   string
+	}{
+		{"no header", "key", ""},
+		{"wrong key", "key", "ApiKey nope"},
+		{"key as bearer", "key", "Bearer key"},
+		{"no scheme", "key", "key"},
+		{"empty key in header", "key", "ApiKey "},
+		{"unset server key", "", "ApiKey "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// A nil db proves unauthenticated requests never reach it.
+			cfg := &apiConfig{polkaKey: tt.polkaKey}
+			req := httptest.NewRequest(http.MethodPost, "/api/polka/webhooks", strings.NewReader(body))
+			if tt.header != "" {
+				req.Header.Set("Authorization", tt.header)
+			}
+			rec := httptest.NewRecorder()
+			cfg.handlerPolkaWebhook(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 			}
 		})
 	}

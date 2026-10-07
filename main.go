@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -28,6 +29,7 @@ type apiConfig struct {
 	db             *database.Queries
 	platform       string
 	jwtSecret      string
+	polkaKey       string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -402,11 +404,20 @@ func (cfg *apiConfig) handlerUpdateUser(w http.ResponseWriter, req *http.Request
 	respondWithJSON(w, http.StatusOK, userFromDB(user))
 }
 
-// handlerPolkaWebhook handles webhooks from Polka. Only the "user.upgraded"
-// event matters: it marks the user as a Chirpy Red member and responds 204.
+// handlerPolkaWebhook handles webhooks from Polka, which must send the shared
+// key as "Authorization: ApiKey <key>" (401 otherwise). Only the
+// "user.upgraded" event matters: it marks the user as a Chirpy Red member and responds 204.
 // Every other event is acknowledged with 204 straight away, and an unknown user
 // gets 404. Polka retries on anything other than 2XX.
 func (cfg *apiConfig) handlerPolkaWebhook(w http.ResponseWriter, req *http.Request) {
+	apiKey, err := auth.GetAPIKey(req.Header)
+	// An unset polkaKey must never match, even against an empty header value.
+	if err != nil || cfg.polkaKey == "" ||
+		subtle.ConstantTimeCompare([]byte(apiKey), []byte(cfg.polkaKey)) != 1 {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
 	var params struct {
 		Event string `json:"event"`
 		Data  struct {
@@ -605,6 +616,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	polkaKey := os.Getenv("POLKA_KEY")
+	if polkaKey == "" {
+		slog.Error("POLKA_KEY must be set")
+		os.Exit(1)
+	}
+
 	dbURL := os.Getenv("DB_URL")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -620,7 +637,7 @@ func main() {
 	const port = "8080"
 	const staticPath = "./static"
 
-	cfg := &apiConfig{db: dbQueries, platform: os.Getenv("PLATFORM"), jwtSecret: jwtSecret}
+	cfg := &apiConfig{db: dbQueries, platform: os.Getenv("PLATFORM"), jwtSecret: jwtSecret, polkaKey: polkaKey}
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler{})

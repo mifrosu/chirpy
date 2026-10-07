@@ -189,3 +189,39 @@ func TestMakeRefreshToken(t *testing.T) {
 		t.Error("two refresh tokens were identical")
 	}
 }
+
+func TestGetAPIKey(t *testing.T) {
+	tests := []struct {
+		name    string
+		headers http.Header
+		want    string
+		wantErr bool
+	}{
+		{"valid", http.Header{"Authorization": {"ApiKey f271c81f"}}, "f271c81f", false},
+		{"extra whitespace", http.Header{"Authorization": {"  ApiKey   f271c81f  "}}, "f271c81f", false},
+		{"case-insensitive scheme", http.Header{"Authorization": {"apikey f271c81f"}}, "f271c81f", false},
+		{"missing header", http.Header{}, "", true},
+		{"nil headers", nil, "", true},
+		{"scheme only", http.Header{"Authorization": {"ApiKey"}}, "", true},
+		{"scheme with blank key", http.Header{"Authorization": {"ApiKey   "}}, "", true},
+		{"bearer token", http.Header{"Authorization": {"Bearer abc"}}, "", true},
+		{"no scheme", http.Header{"Authorization": {"f271c81f"}}, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetAPIKey(tt.headers)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("key = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetBearerTokenRejectsApiKey(t *testing.T) {
+	if _, err := GetBearerToken(http.Header{"Authorization": {"ApiKey abc"}}); err == nil {
+		t.Error("an ApiKey credential was accepted as a Bearer token")
+	}
+}

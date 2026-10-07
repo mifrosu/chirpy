@@ -13,3 +13,5 @@ body:
 headers:
 - name: content-type
   value: application/json
+- name: authorization
+  value: ApiKey <POLKA_KEY from .env>
