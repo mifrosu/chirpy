@@ -127,9 +127,24 @@ func chirpFromDB(c database.Chirp) Chirp {
 	}
 }
 
-// handlerGetChirps responds with all chirps as a JSON array, oldest first.
+// handlerGetChirps responds with chirps as a JSON array, oldest first. With
+// the optional author_id query parameter it returns only that author's chirps
+// (400 if it isn't a valid UUID); otherwise it returns all chirps.
 func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, req *http.Request) {
-	dbChirps, err := cfg.db.GetChirps(req.Context())
+	var (
+		dbChirps []database.Chirp
+		err      error
+	)
+	if req.URL.Query().Has("author_id") {
+		authorID, parseErr := uuid.Parse(req.URL.Query().Get("author_id"))
+		if parseErr != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid author_id")
+			return
+		}
+		dbChirps, err = cfg.db.GetChirpsByAuthor(req.Context(), authorID)
+	} else {
+		dbChirps, err = cfg.db.GetChirps(req.Context())
+	}
 	if err != nil {
 		slog.Error("get chirps", "err", err)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't get chirps")

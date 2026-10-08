@@ -207,6 +207,23 @@ func TestHandlerCreateChirpAuth(t *testing.T) {
 	}
 }
 
+func TestHandlerGetChirpsRejectsInvalidAuthorID(t *testing.T) {
+	// A nil db proves a bad author_id never reaches the database.
+	cfg := &apiConfig{}
+	for _, query := range []string{"?author_id=nope", "?author_id="} {
+		req := httptest.NewRequest(http.MethodGet, "/api/chirps"+query, nil)
+		rec := httptest.NewRecorder()
+		cfg.handlerGetChirps(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want %d", query, rec.Code, http.StatusBadRequest)
+		}
+		if got, want := rec.Body.String(), `{"error":"Invalid author_id"}`; got != want {
+			t.Errorf("%s: body = %q, want %q", query, got, want)
+		}
+	}
+}
+
 func TestHandlerGetChirpInvalidID(t *testing.T) {
 	cfg := &apiConfig{}
 	req := httptest.NewRequest(http.MethodGet, "/api/chirps/nope", nil)
