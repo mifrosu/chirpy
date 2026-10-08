@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -127,10 +128,30 @@ func chirpFromDB(c database.Chirp) Chirp {
 	}
 }
 
-// handlerGetChirps responds with chirps as a JSON array, oldest first. With
-// the optional author_id query parameter it returns only that author's chirps
-// (400 if it isn't a valid UUID); otherwise it returns all chirps.
+// orderChirps orders chirps that are sorted oldest first by created_at: "asc"
+// leaves them as they are and "desc" reverses them.
+func orderChirps(chirps []Chirp, order string) []Chirp {
+	if order == "desc" {
+		slices.Reverse(chirps)
+	}
+	return chirps
+}
+
+// handlerGetChirps responds with chirps as a JSON array. With the optional
+// author_id query parameter it returns only that author's chirps (400 if it
+// isn't a valid UUID); otherwise it returns all chirps. The optional sort
+// parameter orders them by created_at: "asc" (the default, oldest first) or
+// "desc" (newest first); any other value is a 400.
 func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, req *http.Request) {
+	sortOrder := "asc"
+	if req.URL.Query().Has("sort") {
+		sortOrder = req.URL.Query().Get("sort")
+	}
+	if sortOrder != "asc" && sortOrder != "desc" {
+		respondWithError(w, http.StatusBadRequest, `Invalid sort: must be "asc" or "desc"`)
+		return
+	}
+
 	var (
 		dbChirps []database.Chirp
 		err      error
@@ -156,7 +177,7 @@ func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, req *http.Request)
 	for _, c := range dbChirps {
 		chirps = append(chirps, chirpFromDB(c))
 	}
-	respondWithJSON(w, http.StatusOK, chirps)
+	respondWithJSON(w, http.StatusOK, orderChirps(chirps, sortOrder))
 }
 
 // handlerGetChirp responds with the chirp whose ID is in the request path.

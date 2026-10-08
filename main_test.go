@@ -224,6 +224,47 @@ func TestHandlerGetChirpsRejectsInvalidAuthorID(t *testing.T) {
 	}
 }
 
+func TestHandlerGetChirpsRejectsInvalidSort(t *testing.T) {
+	// A nil db proves a bad sort value never reaches the database.
+	cfg := &apiConfig{}
+	for _, query := range []string{"?sort=nope", "?sort=", "?sort=ASC"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/chirps"+query, nil)
+		rec := httptest.NewRecorder()
+		cfg.handlerGetChirps(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want %d", query, rec.Code, http.StatusBadRequest)
+		}
+	}
+}
+
+func TestOrderChirps(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ids := func(cs []Chirp) []string {
+		var out []string
+		for _, c := range cs {
+			out = append(out, c.Body)
+		}
+		return out
+	}
+	oldestFirst := func() []Chirp {
+		return []Chirp{
+			{Body: "a", CreatedAt: t0},
+			{Body: "b", CreatedAt: t0.Add(time.Hour)},
+			{Body: "c", CreatedAt: t0.Add(2 * time.Hour)},
+		}
+	}
+	if got := strings.Join(ids(orderChirps(oldestFirst(), "asc")), ""); got != "abc" {
+		t.Errorf("asc = %q, want abc", got)
+	}
+	if got := strings.Join(ids(orderChirps(oldestFirst(), "desc")), ""); got != "cba" {
+		t.Errorf("desc = %q, want cba", got)
+	}
+	if got := orderChirps([]Chirp{}, "desc"); got == nil || len(got) != 0 {
+		t.Errorf("empty desc = %#v, want empty non-nil slice", got)
+	}
+}
+
 func TestHandlerGetChirpInvalidID(t *testing.T) {
 	cfg := &apiConfig{}
 	req := httptest.NewRequest(http.MethodGet, "/api/chirps/nope", nil)
